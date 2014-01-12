@@ -2,6 +2,7 @@
 
 from rdd import *
 from schedule import *
+from env import env
 
 
 class MDparkContext:
@@ -13,10 +14,13 @@ class MDparkContext:
         self.init()
 
     def init(self):
-        master = self.master
+        env.create(True)
+        self.env = env
 
+        master = self.master
         if master == 'local':
-            pass  # TODO: local
+            self.scheduler = LocalScheduler()
+            self.isLocal = True
         elif master == 'process':
             self.scheduler = MultiProcessScheduler(2)
             self.isLocal = False

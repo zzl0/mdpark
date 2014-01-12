@@ -20,7 +20,7 @@ class OneToOneDependency(NarrowDependency):
 class ShuffleDependency(Dependency):
     isShuffle = True
 
-    def __init__(self, rdd, shuffleId, aggregator, partitioner):
+    def __init__(self, shuffleId, rdd, aggregator, partitioner):
         Dependency.__init__(self, rdd)
         self.shuffleId = shuffleId
         self.aggregator = aggregator

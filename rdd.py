@@ -1,5 +1,6 @@
 from utils import load_func, dump_func
-from dependency import OneToOneDependency
+from dependency import (OneToOneDependency, ShuffleDependency, Aggregator,
+        HashPartitioner)
 
 class Split:
     def __init__(self, idx):
@@ -26,14 +27,16 @@ class RDD:
         self.ctx = ctx
         self.id = ctx.newRddId()
         self.partitioner = None
+        self.shouldCache = False
+        self._splits = []
 
     @property
     def splits(self):
-        return []
+        return self._splits
 
     def compute(self, split):
-        pass
-    
+        raise NotImplementedError
+
     @property
     def dependencies(self):
         return []
@@ -42,9 +45,12 @@ class RDD:
         return []
 
     def iterator(self, split):
-        # TODO: cache
-        for i in self.compute(split):
-            yield i
+        if self.shouldCache:
+            for i in self.ctx.cacheTracker.getOrCompute(self, split):
+                yield i
+        else:
+            for i in self.compute(split):
+                yield i
 
     ## Transformations (return a new RDD)
 
@@ -63,8 +69,28 @@ class RDD:
         options = self.ctx.runJob(self, reducePartition)
         return reduce(f, sum(options, []))
 
+    def combineByKey(self, createCombiner, mergeValue, mergeCombiners, numSplits=None):
+        aggregator = Aggregator()
+        aggregator.createCombiner = createCombiner
+        aggregator.mergeValue = mergeValue
+        aggregator.mergeCombiners = mergeCombiners
+        partitioner = HashPartitioner(numSplits)
+        return ShuffledRDD(self, aggregator, partitioner)
+
+    def reduceByKey(self, func, numSplits=None):
+        return self.combineByKey(lambda x: x, func, func, numSplits)
+
+    def groupByKey(self, numSplits=None):
+        createCombiner = lambda x: [x]
+        mergeValue = lambda c, v: c + [v]
+        mergeCombiners = lambda c1, c2: c1 + c2
+        return self.combineByKey(createCombiner, mergeValue, mergeCombiners, numSplits)
+
     def collect(self):
         return sum(self.ctx.runJob(self, lambda x: list(x)), [])
+
+    def __str__(self):
+        return self.__repr__()
 
 
 class MappedRDD(RDD):
@@ -115,7 +141,7 @@ class ParallelCollection(RDD):
                         for i in range(len(slices))]
 
     def __repr__(self):
-        return '<ParallelCollection %d>' % self.numSlices
+        return '<ParallelCollection(%d)>' % self.numSlices
 
     @property
     def splits(self):
@@ -135,3 +161,29 @@ class ParallelCollection(RDD):
             n += 1
         seq = list(seq)
         return [seq[i*n: i*n+n] for i in range(numSlices)]
+
+
+class ShuffledRDDSplit(Split):
+    def __hash__(self):
+        return self.index
+
+
+class ShuffledRDD(RDD):
+    def __init__(self, parent, aggregator, part):
+        RDD.__init__(self, parent.ctx)
+        self.parent = parent
+        self.aggregator = aggregator
+        self.partitioner = part
+        self._splits = [ShuffledRDDSplit(i) for i in range(part.numPartitions)]
+        self.dependencies = [ShuffleDependency(self.ctx.newShuffleId(), parent, aggregator, part)]
+
+    def compute(self, split):
+        combiners = {}
+        def mergePair(k, c):
+            combiners[k] = self.aggregator.mergeCombiners(combiners[k], c) if k in combiners else c
+        fetcher = self.ctx.env.shuffleFetcher
+        fetcher.fetch(self.dependencies[0].shuffleId, split.index, mergePair)
+        return combiners.iteritems()
+
+    def __repr__(self):
+        return '<ShuffledRDD(%d) %s>' % (self.partitioner.numPartitions, self.parent)

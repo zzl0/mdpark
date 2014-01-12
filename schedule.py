@@ -6,6 +6,7 @@ import Queue
 from dependency import *
 from accumulator import *
 from task import *
+from env import env
 
 class TaskEndReason: pass
 class Success(TaskEndReason): pass
@@ -52,14 +53,14 @@ class Stage:
         return str(self)
 
     @property
-    def isAvaiable(self):
+    def isAvailable(self):
         if not self.parents and not self.isShuffleMap:
             return True
         return self.numAvailableOutputs == self.numPartitions
 
     def addOutputLoc(self, partition, host):
         prevList = self.outputLocs[partition]
-        self.outputLocs[partitions] = [host] + prevList
+        self.outputLocs[partition] = [host] + prevList
         if not prevList:
             self.numAvailableOutputs += 1
 
@@ -104,6 +105,7 @@ class DAGScheduler(Scheduler):
         self.completionEvents = Queue.Queue()
         self.idToStage = {}
         self.shuffleToMapStage = {}
+        self.mapOutputTracker = env.mapOutputTracker
 
         self.waiting = set()  # Stages we need to run whose parents aren't done
         self.running = set()  # Stages we are running right now.
@@ -191,7 +193,7 @@ class DAGScheduler(Scheduler):
                 self.submitMissingTasks(stage)
                 self.running.add(stage)
             else:
-                for p in self.missing:
+                for p in missing:
                     self.submitStage(p)
                 self.waiting.add(stage)
 
@@ -208,9 +210,9 @@ class DAGScheduler(Scheduler):
         else:
             # This is shuffle map
             for i in range(stage.numPartitions):
-                if stage.outputLocs[i] is None:
+                if not stage.outputLocs[i]:
                     locs = self.getPreferedLocs(stage.rdd, i)
-                    tasks.append(ShuffleMapTask(stage.id, stage.rdd, stage.shuffleDep.get, i, locs))
+                    tasks.append(ShuffleMapTask(stage.id, stage.rdd, stage.shuffleDep, i, locs))
         logger.debug('add to pending %r', tasks)
         myPending |= set(t.id for t in tasks)
         self.submitTasks(tasks)
@@ -249,14 +251,20 @@ class DAGScheduler(Scheduler):
                         self.finished.add(task.outputId)
                         numFinished += 1
                     elif isinstance(task, ShuffleMapTask):
-                        stage = idToStage[task.stageId]
+                        stage = self.idToStage[task.stageId]
                         stage.addOutputLoc(task.partition, evt.result)
                         if not self.pendingTasks[stage]:
                             logger.debug('%s finished; looking for newly runnable stages', stage)
                             self.running.remove(stage)
-                            newlyRunnable = set(stage for stage in waiting if self.getMissingParentStages(stage))
+                            if stage.shuffleDep != None:
+                                self.mapOutputTracker.registerMapOutputs(
+                                        stage.shuffleDep.shuffleId,
+                                        [loc[0] for loc in stage.outputLocs])
+
+                            newlyRunnable = set(stage for stage in self.waiting if not self.getMissingParentStages(stage))
                             self.waiting -= newlyRunnable
                             self.running |= newlyRunnable
+                            logger.info('newly runnable: %s, %s', self.waiting, newlyRunnable)
                             for stage in newlyRunnable:
                                 self.submitMissingTasks(stage)
                 else:
@@ -271,6 +279,36 @@ class DAGScheduler(Scheduler):
     
     def getPreferedLocs(self, rdd, partition):
         return rdd.preferredLocations(rdd.splits[partition])
+
+
+def run_task(task, aid):
+    logger.info('Running taks %r', task)
+    try:
+        Accumulator.clear()
+        result = task.run(aid)
+        accumUpdates = Accumulator.values()
+        return task, Success(), result, accumUpdates
+    except Exception:
+        logger.info('error in task %r', task)
+        import traceback
+        traceback.print_exc()
+        raise
+
+
+class LocalScheduler(DAGScheduler):
+    attemptId = 0
+
+    def nextAttemptId(self):
+        self.attemptId += 1
+        return self.attemptId
+
+    def submitTasks(self, tasks):
+        logger.info('submit tasks %s in LocalScheduler', tasks)
+        for task in tasks:
+            self.taskEnded(*run_task(task, self.nextAttemptId()))
+
+    def stop(self):
+        pass
 
 
 def process_worker(task, aid):
