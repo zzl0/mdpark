@@ -202,6 +202,7 @@ class DAGScheduler(Scheduler):
         myPending = self.pendingTasks.setdefault(stage, set())
         tasks = []
         if not stage.isShuffleMap:
+            print 'y'*50, stage, stage.numPartitions
             for i in range(self.numOutputParts):
                 if i not in self.finished:
                     part = self.outputParts[i]
@@ -209,6 +210,7 @@ class DAGScheduler(Scheduler):
                     tasks.append(ResultTask(stage.id, stage.rdd, self.func, part, locs, i))
         else:
             # This is shuffle map
+            print 'z'*50, stage, stage.numPartitions
             for i in range(stage.numPartitions):
                 if not stage.outputLocs[i]:
                     locs = self.getPreferedLocs(stage.rdd, i)
@@ -226,6 +228,13 @@ class DAGScheduler(Scheduler):
         results = [None] * self.numOutputParts
         numFinished = 0
 
+        self.waiting = set()
+        self.running = set()
+        self.failed = set()
+        self.pendingTasks = {}
+        self.lastFetchFailureTime = 0
+        self.finished = set()  # finished partition id
+ 
         logger.debug("Final stage: %s, %d", finalStage, self.numOutputParts)
         logger.debug("Parents of final stage: %s", finalStage.parents)
         logger.debug("Missing parents: %s", self.getMissingParentStages(finalStage))

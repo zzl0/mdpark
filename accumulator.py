@@ -59,5 +59,3 @@ class AccumulatorParam:
         pass
     def zero(v):
         pass
-
-
