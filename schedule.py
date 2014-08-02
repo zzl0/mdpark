@@ -47,14 +47,14 @@ class Stage:
         self.numAvailableOutputs = 0
 
     def __str__(self):
-        return '<Stage(%d) for %s>' % (self.id, self.rdd)
+        return '<Stage(%d) for %s, parents: %s>' % (self.id, self.rdd, self.parents)
 
     def __repr__(self):
         return str(self)
 
     @property
     def isAvailable(self):
-        if not self.parents and not self.isShuffleMap:
+        if not self.isShuffleMap:
             return True
         return self.numAvailableOutputs == self.numPartitions
 
@@ -106,7 +106,9 @@ class DAGScheduler(Scheduler):
         self.idToStage = {}
         self.shuffleToMapStage = {}
         self.mapOutputTracker = env.mapOutputTracker
+        self._init()
 
+    def _init(self):
         self.waiting = set()  # Stages we need to run whose parents aren't done
         self.running = set()  # Stages we are running right now.
         self.failed = set()   # Stages that must be resubmitted due to fetch failures
@@ -172,14 +174,13 @@ class DAGScheduler(Scheduler):
             if r.id in visited:
                 return
             visited.add(r.id)
-            for i in range(len(r.splits)):
-                for dep in r.dependencies:
-                    if isinstance(dep, ShuffleDependency):
-                        stage = self.getShuffleMapStage(dep)
-                        if not stage.isAvailable:
-                            missing.add(stage)
-                    elif isinstance(dep, NarrowDependency):
-                        visit(dep.rdd)
+            for dep in r.dependencies:
+                if isinstance(dep, ShuffleDependency):
+                    stage = self.getShuffleMapStage(dep)
+                    if not stage.isAvailable:
+                        missing.add(stage)
+                elif isinstance(dep, NarrowDependency):
+                    visit(dep.rdd)
         visit(stage.rdd)
         return list(missing)
 
@@ -221,6 +222,7 @@ class DAGScheduler(Scheduler):
 
 
     def runJob(self, finalRdd, func, partitions, allowLocal):
+        self._init()
         self.outputParts = list(partitions)
         self.numOutputParts = len(partitions)
         self.func = func
@@ -228,21 +230,13 @@ class DAGScheduler(Scheduler):
         results = [None] * self.numOutputParts
         numFinished = 0
 
-        self.waiting = set()
-        self.running = set()
-        self.failed = set()
-        self.pendingTasks = {}
-        self.lastFetchFailureTime = 0
-        self.finished = set()  # finished partition id
- 
         logger.debug("Final stage: %s, %d", finalStage, self.numOutputParts)
         logger.debug("Parents of final stage: %s", finalStage.parents)
         logger.debug("Missing parents: %s", self.getMissingParentStages(finalStage))
 
         if allowLocal and not finalStage.parents and self.numOutputParts == 1:
             split = finalRdd.splits[self.outputParts[0]]
-            taskContext = TaskContext(finalStage.id, self.outputParts[0], 0)
-            return list(func(taskContext, finalRdd.iterator(split)))
+            return list(func(finalRdd.iterator(split)))
 
         self.submitStage(finalStage)
 

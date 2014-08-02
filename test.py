@@ -26,7 +26,6 @@ def test_reduceByKey():
 
 
 def main():
-    test_groupByKey()
     test_reduceByKey()
     print 'tests passed'
 
