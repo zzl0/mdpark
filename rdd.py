@@ -1,6 +1,12 @@
+import os
 from utils import load_func, dump_func
-from dependency import (OneToOneDependency, ShuffleDependency, Aggregator,
-        HashPartitioner)
+from dependency import (
+    OneToOneDependency, ShuffleDependency, Aggregator, HashPartitioner,
+)
+
+import logging
+logger = logging.getLogger(__file__)
+
 
 class Split:
     def __init__(self, idx):
@@ -60,6 +66,9 @@ class RDD:
     def filter(self, f):
         return FilteredRDD(self, f)
 
+    def flatMap(self, f):
+        return FlatMappedRDD(self, f)
+
     def reduce(self, f):
         def reducePartition(it):
             if it:
@@ -68,6 +77,12 @@ class RDD:
                 return []
         options = self.ctx.runJob(self, reducePartition)
         return reduce(f, sum(options, []))
+
+    def count(self):
+        def ilen(x):
+            return sum(1 for _ in x)
+        return sum(self.ctx.runJob(self, lambda x: ilen(x)), 0)
+
 
     def combineByKey(self, createCombiner, mergeValue, mergeCombiners, numSplits=None):
         aggregator = Aggregator()
@@ -89,8 +104,15 @@ class RDD:
     def collect(self):
         return sum(self.ctx.runJob(self, lambda x: list(x)), [])
 
+    def saveAsTextFile(self, path):
+        return OutputTextFileRDD(self, path).collect()
+
     def __str__(self):
         return self.__repr__()
+
+    def __repr__(self):
+        return "<%s>" % self.__class__.__name__
+
 
 
 class MappedRDD(RDD):
@@ -118,6 +140,13 @@ class MappedRDD(RDD):
 
     def __repr__(self):
         return '<%s %s>' % (self.__class__.__name__, self.prev)
+
+
+class FlatMappedRDD(MappedRDD):
+    def compute(self, split):
+        for i in self.prev.iterator(split):
+            for j in self.f(i):
+                yield j
 
 
 class FilteredRDD(MappedRDD):
@@ -187,3 +216,88 @@ class ShuffledRDD(RDD):
 
     def __repr__(self):
         return '<ShuffledRDD(%d) %s>' % (self.partitioner.numPartitions, self.parent)
+
+
+class UnionSplit:
+    def __init__(self, idx, rdd, split):
+        self.index = idx
+        self.rdd = rdd
+        self.split = split
+
+
+class UnionRDD(RDD):
+    def __init__(self, ctx, rdds):
+        RDD.__init__(self, ctx)
+        self.rdds = rdds
+        self._splits = []
+        for rdd in rdds:
+            for split in rdd.splits:
+                self._splits.append(UnionSplit(len(self._splits), rdd, split))
+
+    def compute(self, split):
+        return split.rdd.iterator(split.split)
+
+
+class TextFileRDD(RDD):
+    def __init__(self, ctx, path, numSplits=None, splitSize=None):
+        RDD.__init__(self, ctx)
+        self.path = path
+        if not os.path.exists(path):
+            raise IOError('%s not exits' % path)
+        size = os.path.getsize(path)
+        if splitSize is None:
+            if numSplits is None:
+                splitSize = 64 * 1024 * 1024
+            else:
+                splitSize = size / numSplits
+        n = size / splitSize
+        if size % splitSize > 0:
+            n += 1
+        self.splitSize = splitSize
+        self._splits = [Split(i) for i in range(n)]
+
+    def compute(self, split):
+        with open(self.path) as f:
+            start = split.index * self.splitSize
+            end = start + self.splitSize
+            if start > 0:
+                f.seek(start - 1)
+                byte = f.read(1)
+                skip = byte != '\n'
+            else:
+                f.seek(start)
+                skip = False
+            for line in f:
+                if start >= end:
+                    break
+                start += len(line)
+                if skip:
+                    skip = False
+                else:
+                    yield line
+
+
+class OutputTextFileRDD(RDD):
+    def __init__(self, rdd, path):
+        RDD.__init__(self, rdd.ctx)
+        self.rdd = rdd
+        self.path = path
+        if os.path.exists(path):
+            if not os.path.isdir(path):
+                raise Exception("Output path must be dir: %s" % path)
+        else:
+            os.makedirs(path)
+        self.dependencies = [OneToOneDependency(rdd)]
+
+    @property
+    def splits(self):
+        return self.rdd.splits
+
+    def compute(self, split):
+        path = os.path.join(self.path, str(split.index))
+        with open(path, 'w') as f:
+            for line in self.rdd.iterator(split):
+                f.write(line)
+                if not line.endswith('\n'):
+                    f.write('\n')
+        yield path
