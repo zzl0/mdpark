@@ -16,7 +16,12 @@ class TestRDD(unittest.TestCase):
     def tearDown(self):
         self.mc.stop()
 
+    def print_sep(self, name):
+        print '================ %s starts =============' % name
+
     def test_reduceByKey(self):
+        self.print_sep('test_reduceByKey')
+
         d = zip([1,2,3,3], range(4,8))
         nums = self.mc.makeRDD(d, 2)
         rs = nums.reduceByKey(lambda x, y: x + y, 2).collect()
@@ -24,6 +29,8 @@ class TestRDD(unittest.TestCase):
         self.assertEqual(rs, expected)
 
     def test_file(self):
+        self.print_sep('test_file')
+
         rdd = self.mc.makeRDD(range(20), 5)
         rdd = rdd.map(lambda x: str(x))
 
