@@ -36,6 +36,12 @@ class RDD:
         self.shouldCache = False
         self._splits = []
 
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self):
+        return "<%s>" % self.__class__.__name__
+
     @property
     def splits(self):
         return self._splits
@@ -69,21 +75,6 @@ class RDD:
     def flatMap(self, f):
         return FlatMappedRDD(self, f)
 
-    def reduce(self, f):
-        def reducePartition(it):
-            if it:
-                return [reduce(f, it)]
-            else:
-                return []
-        options = self.ctx.runJob(self, reducePartition)
-        return reduce(f, sum(options, []))
-
-    def count(self):
-        def ilen(x):
-            return sum(1 for _ in x)
-        return sum(self.ctx.runJob(self, lambda x: ilen(x)), 0)
-
-
     def combineByKey(self, createCombiner, mergeValue, mergeCombiners, numSplits=None):
         aggregator = Aggregator()
         aggregator.createCombiner = createCombiner
@@ -101,18 +92,26 @@ class RDD:
         mergeCombiners = lambda c1, c2: c1 + c2
         return self.combineByKey(createCombiner, mergeValue, mergeCombiners, numSplits)
 
+    # action (get result)
+
+    def reduce(self, f):
+        def reducePartition(it):
+            if it:
+                return [reduce(f, it)]
+            else:
+                return []
+        options = self.ctx.runJob(self, reducePartition)
+        return reduce(f, sum(options, []))
+
+    def count(self):
+        def ilen(x):
+            return sum(1 for _ in x)
+        return sum(self.ctx.runJob(self, lambda x: ilen(x)), 0)
     def collect(self):
         return sum(self.ctx.runJob(self, lambda x: list(x)), [])
 
     def saveAsTextFile(self, path):
         return OutputTextFileRDD(self, path).collect()
-
-    def __str__(self):
-        return self.__repr__()
-
-    def __repr__(self):
-        return "<%s>" % self.__class__.__name__
-
 
 
 class MappedRDD(RDD):
