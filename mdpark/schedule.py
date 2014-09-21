@@ -3,10 +3,11 @@
 import logging
 import Queue
 
-from dependency import *
-from accumulator import *
-from task import *
-from env import env
+from mdpark.dependency import *
+from mdpark.accumulator import *
+from mdpark.task import *
+from mdpark.env import env
+
 
 class TaskEndReason: pass
 class Success(TaskEndReason): pass
@@ -141,7 +142,7 @@ class DAGScheduler(Scheduler):
         self.idToStage[id] = stage
         logger.debug("new stage: %s", stage)
         return stage
-        
+
     def getParentStages(self, rdd):
         """
         Get or create the list of parent stages for a given RDD.
@@ -279,7 +280,7 @@ class DAGScheduler(Scheduler):
                     self.submitStage(stage)
                 self.failed.clear()
         return results
-    
+
     def getPreferedLocs(self, rdd, partition):
         return rdd.preferredLocations(rdd.splits[partition])
 

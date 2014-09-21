@@ -1,8 +1,8 @@
 # coding: utf-8
 
-from rdd import *
-from schedule import *
-from env import env
+from mdpark.rdd import *
+from mdpark.schedule import *
+from mdpark.env import env
 
 
 class MDparkContext:

@@ -1,6 +1,9 @@
+# coding: utf-8
+
 import pickle
-from utils import load_func, dump_func
-from shuffle import LocalFileShuffle
+
+from mdpark.utils import load_func, dump_func
+from mdpark.shuffle import LocalFileShuffle
 
 import logging
 logger = logging.getLogger("task")
@@ -90,7 +93,7 @@ class ShuffleMapTask(DAGTask):
         partitioner = self.dep.partitioner
         numOutputSplits = partitioner.numPartitions
         buckets = [{} for i in range(numOutputSplits)]
-        
+
         for k, v in self.rdd.iterator(self.split):
             bucketId = partitioner.getPartition(k)
             bucket = buckets[bucketId]

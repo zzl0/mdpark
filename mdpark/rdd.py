@@ -1,6 +1,9 @@
+# coding: utf-8
+
 import os
-from utils import load_func, dump_func
-from dependency import (
+
+from mdpark.utils import load_func, dump_func
+from mdpark.dependency import (
     OneToOneDependency, ShuffleDependency, Aggregator, HashPartitioner,
 )
 

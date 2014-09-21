@@ -1,6 +1,7 @@
 import unittest
-from context import *
-from rdd import *
+
+from mdpark.context import *
+from mdpark.rdd import *
 
 import logging
 logging.basicConfig(

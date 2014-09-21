@@ -1,8 +1,11 @@
 # coding: utf-8
+
 import urllib
 import logging
 import pickle
-from env import env
+
+from mdpark.env import env
+
 
 class ShuffleFetcher:
     def fetch(self, shuflleId, reduceId, func):
@@ -18,7 +21,7 @@ class SimpleShuffleFetcher(ShuffleFetcher):
                 shuflleId, reduceId)
         uri2splits = {}
         serverUris = env.mapOutputTracker.getServerUris(shuflleId)
-        
+
         for i, uri in enumerate(serverUris):
             uri2splits.setdefault(uri, []).append(i)
 

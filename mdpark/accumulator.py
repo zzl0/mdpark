@@ -1,4 +1,7 @@
+# coding: utf-8
+
 from threading import currentThread
+
 
 class Accumulator:
     def __init__(self, initialValue, param):
@@ -14,7 +17,7 @@ class Accumulator:
     def _set_value(self, v):
         self._value = v
     value = property(_get_value, _set_value)
-   
+
     def __str__(self):
         return str(self._value)
 
@@ -52,7 +55,7 @@ class Accumulator:
         for id, value in values.items():
             if id in cls.originals:
                 cls.originals[id].extend(value)
-         
+
 
 class AccumulatorParam:
     def addInPlace(t1, t2):

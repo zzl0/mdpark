@@ -1,6 +1,9 @@
+# coding: utf-8
+
 import marshal
 import new
 import pickle
+
 
 def dump_object(o):
     try:
