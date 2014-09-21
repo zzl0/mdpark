@@ -1,5 +1,10 @@
 # coding: utf-8
 
+try:
+    import multiprocessing
+except ImportError:
+    pass
+
 from setuptools import setup
 
 version = '0.1'
